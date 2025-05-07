@@ -6,13 +6,16 @@ public class Server {
     private static List<PrintWriter> clients = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        ServerSocket serverSocket = new ServerSocket(8888);
-        System.out.println("Serveur TCP démarré sur 8888");
+        // Utiliser le port fourni par Render ou 8888 par défaut
+        int port = args.length > 0 ? Integer.parseInt(args[0]) : 8888;
+
+        ServerSocket serverSocket = new ServerSocket(port);
+        System.out.println("Serveur TCP démarré sur port " + port);
 
         while (true) {
             Socket clientSocket = serverSocket.accept();
+            System.out.println("Nouvelle connexion reçue de: " + clientSocket.getInetAddress());
 
-            // Nouvelle approche sans mark/reset
             new Thread(() -> handleClient(clientSocket)).start();
         }
     }
@@ -26,13 +29,19 @@ public class Server {
             String firstLine = in.readLine();
             if (firstLine != null &&
                     (firstLine.startsWith("GET ") || firstLine.startsWith("HEAD "))) {
-                out.println("HTTP/1.1 200 OK\r\n\r\nHealth Check OK");
+                System.out.println("Requête HTTP reçue: " + firstLine);
+                out.println("HTTP/1.1 200 OK");
+                out.println("Content-Type: text/plain");
+                out.println("");
+                out.println("Health Check OK");
                 return;
             }
 
             // Mode messagerie
-            clients.add(out);
-            System.out.println("Nouveau client connecté");
+            synchronized(clients) {
+                clients.add(out);
+            }
+            System.out.println("Nouveau client de messagerie connecté");
 
             if (firstLine != null) {
                 broadcast(firstLine);
@@ -40,30 +49,36 @@ public class Server {
 
             String message;
             while ((message = in.readLine()) != null) {
+                System.out.println("Message reçu: " + message);
                 broadcast(message);
             }
         } catch (IOException e) {
             System.out.println("Erreur client: " + e.getMessage());
         } finally {
-            clients.removeIf(writer -> {
-                try {
-                    return writer.checkError();
-                } catch (Exception e) {
-                    return true;
-                }
-            });
+            synchronized(clients) {
+                clients.removeIf(writer -> {
+                    try {
+                        return writer.checkError();
+                    } catch (Exception e) {
+                        return true;
+                    }
+                });
+            }
+            System.out.println("Client déconnecté. Clients restants: " + clients.size());
         }
     }
 
     private static void broadcast(String message) {
         System.out.println("Broadcast: " + message);
-        for (PrintWriter client : new ArrayList<>(clients)) {
-            try {
-                client.println(message);
-                client.flush();
-            } catch (Exception e) {
-                System.err.println("Erreur envoi: " + e.getMessage());
-                clients.remove(client);
+        synchronized(clients) {
+            for (PrintWriter client : new ArrayList<>(clients)) {
+                try {
+                    client.println(message);
+                    client.flush();
+                } catch (Exception e) {
+                    System.err.println("Erreur envoi: " + e.getMessage());
+                    clients.remove(client);
+                }
             }
         }
     }
