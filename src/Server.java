@@ -12,52 +12,62 @@ public class Server {
         while (true) {
             Socket clientSocket = serverSocket.accept();
 
-            // Vérifie si c'est une requête HTTP de Render
-            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-            String firstLine = in.readLine();
+            // Crée un nouveau flux tamponné sans consommer les données
+            PushbackInputStream pbStream = new PushbackInputStream(clientSocket.getInputStream());
+            BufferedReader in = new BufferedReader(new InputStreamReader(pbStream));
 
-            if (firstLine != null && firstLine.startsWith("HEAD / HTTP")) {
-                // Répond aux health checks de Render
+            // Lit les premiers caractères sans les consommer
+            in.mark(5);
+            char[] start = new char[4];
+            int read = in.read(start, 0, 4);
+            in.reset();
+
+            if (read == 4 && (new String(start).startsWith("GET ") || new String(start).startsWith("HEAD"))) {
+                // Réponse HTTP pour Render
                 PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-                out.println("HTTP/1.1 200 OK\r\n\r\n");
+                out.println("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK");
                 clientSocket.close();
                 continue;
             }
 
-            // Sinon, traitement normal pour les clients de messagerie
-            ClientHandler client = new ClientHandler(clientSocket, firstLine);
+            // Si ce n'est pas HTTP, crée le handler avec le socket original
+            ClientHandler client = new ClientHandler(new SocketWrapper(clientSocket, pbStream));
             clients.add(client);
             new Thread(client).start();
         }
     }
 
-    public static void broadcast(String message) {
-        for (ClientHandler client : clients) {
-            client.sendMessage(message);
+    static class SocketWrapper {
+        private final Socket socket;
+        private final PushbackInputStream stream;
+
+        public SocketWrapper(Socket socket, PushbackInputStream stream) {
+            this.socket = socket;
+            this.stream = stream;
+        }
+
+        public InputStream getInputStream() {
+            return stream;
+        }
+
+        public OutputStream getOutputStream() throws IOException {
+            return socket.getOutputStream();
         }
     }
 
     static class ClientHandler implements Runnable {
-        private Socket socket;
-        private PrintWriter out;
-        private String initialMessage;
+        private final SocketWrapper socketWrapper;
+        private final PrintWriter out;
 
-        public ClientHandler(Socket socket, String initialMessage) throws IOException {
-            this.socket = socket;
-            this.out = new PrintWriter(socket.getOutputStream(), true);
-            this.initialMessage = initialMessage;
+        public ClientHandler(SocketWrapper socketWrapper) throws IOException {
+            this.socketWrapper = socketWrapper;
+            this.out = new PrintWriter(socketWrapper.getOutputStream(), true);
         }
 
         public void run() {
-            try {
-                // Traite le premier message déjà lu
-                if (initialMessage != null) {
-                    System.out.println("Message reçu: " + initialMessage);
-                    broadcast(initialMessage);
-                }
+            try (BufferedReader in = new BufferedReader(
+                    new InputStreamReader(socketWrapper.getInputStream()))) {
 
-                // Continue avec les messages suivants
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 String inputLine;
                 while ((inputLine = in.readLine()) != null) {
                     System.out.println("Message reçu: " + inputLine);
@@ -67,15 +77,23 @@ public class Server {
                 System.err.println("Erreur client: " + e.getMessage());
             } finally {
                 clients.remove(this);
-                try { socket.close(); } catch (IOException e) {}
+                try {
+                    socketWrapper.socket.close();
+                } catch (IOException e) {
+                    System.err.println("Erreur fermeture socket: " + e.getMessage());
+                }
             }
         }
 
         public void sendMessage(String message) {
             out.println(message);
-            out.flush(); // <- Ajoutez cette ligne cruciale
-            System.out.println("[DEBUG] Envoyé à " + socket.getRemoteSocketAddress() + " : " + message);
+            out.flush();
+        }
+    }
 
+    public static void broadcast(String message) {
+        for (ClientHandler client : clients) {
+            client.sendMessage(message);
         }
     }
 }
