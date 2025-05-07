@@ -6,8 +6,8 @@ public class Server {
     private static List<ClientHandler> clients = new ArrayList<>();
 
     public static void main(String[] args) throws IOException {
-        ServerSocket serverSocket = new ServerSocket(8888, 0, InetAddress.getByName("0.0.0.0"));
-        System.out.println("Serveur démarré sur le port 8888...");
+        ServerSocket serverSocket = new ServerSocket(8888);
+        System.out.println("Serveur démarré sur 8888");  // Log crucial
 
         while (true) {
             Socket clientSocket = serverSocket.accept();
