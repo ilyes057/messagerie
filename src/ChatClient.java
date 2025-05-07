@@ -41,7 +41,7 @@ public class ChatClient {
 
         // Connexion au serveur
         try {
-            socket = new Socket("messagerie-8we4.onrender.com", 8888);
+            socket = new Socket("messagerie-oqm6.onrender.com", 8888);
             out = new PrintWriter(socket.getOutputStream(), true);
 
             // Thread pour recevoir les messages

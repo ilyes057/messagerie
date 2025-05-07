@@ -73,6 +73,9 @@ public class Server {
 
         public void sendMessage(String message) {
             out.println(message);
+            out.flush(); // <- Ajoutez cette ligne cruciale
+            System.out.println("[DEBUG] Envoyé à " + socket.getRemoteSocketAddress() + " : " + message);
+
         }
     }
 }
